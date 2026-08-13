@@ -12,6 +12,8 @@ export const AdminNav: React.FC = () => {
     { label: 'REVEAL', path: '/admin/reveal' },
     { label: 'ROYALTY', path: '/admin/royalty' },
     { label: 'BURN LAB', path: '/admin/burn' },
+    { label: 'STAKING', path: '/admin/staking' },
+    { label: 'CLOCK IN', path: '/admin/clockin' },
     { label: 'CONTRACT', path: '/admin/contract' },
   ];
 
