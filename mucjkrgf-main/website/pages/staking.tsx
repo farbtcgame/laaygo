@@ -1,53 +1,162 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Layout } from "../components/Layout";
 import { useWeb3 } from "../context/Web3Context";
-import { ALCHEMY_API_KEY } from "../config/web3";
+import { useStaking } from "../context/StakingContext";
+import { ALCHEMY_API_KEY, WEB3_CONFIG } from "../config/web3";
 import { fetchOwnedMiniBrokers, OwnedNft } from "../lib/alchemyNfts";
+import { ethers } from "ethers";
 
 type LoadState = "IDLE" | "LOADING" | "LOADED" | "ERROR";
 
 export default function StakingPage() {
-  const { account, walletConnectReady, connectWallet } = useWeb3();
+  const { account, walletConnectReady, connectWallet, isCorrectNetwork, switchNetwork } = useWeb3();
+  const {
+    stakingConfigured,
+    rewardTokenSymbol,
+    rewardTokenDecimals,
+    rewardPerCycle,
+    stakedTokens,
+    stakedLoading,
+    txState,
+    txHash,
+    errorMessage,
+    checkStakingApproval,
+    approveStaking,
+    stakeSelected,
+    unstakeSelected,
+    claimSelected,
+  } = useStaking();
 
   const [ownedNfts, setOwnedNfts] = useState<OwnedNft[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("IDLE");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedStaked, setSelectedStaked] = useState<Set<string>>(new Set());
+  const [needsApproval, setNeedsApproval] = useState<boolean | null>(null);
 
-  useEffect(() => {
+  const loadOwnedNfts = React.useCallback(async () => {
     if (!account) {
       setOwnedNfts([]);
       setLoadState("IDLE");
       return;
     }
-
-    let cancelled = false;
-
-    async function load() {
-      setLoadState("LOADING");
-      setLoadError(null);
-      try {
-        const nfts = await fetchOwnedMiniBrokers(account as string);
-        if (!cancelled) {
-          setOwnedNfts(nfts);
-          setLoadState("LOADED");
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setLoadState("ERROR");
-          setLoadError(
-            err?.message === "ALCHEMY_NOT_CONFIGURED"
-              ? "Alchemy API key not configured yet — set NEXT_PUBLIC_ALCHEMY_API_KEY."
-              : "Couldn't load your NFTs right now. Please try again shortly."
-          );
-        }
-      }
+    setLoadState("LOADING");
+    setLoadError(null);
+    try {
+      const nfts = await fetchOwnedMiniBrokers(account);
+      setOwnedNfts(nfts);
+      setLoadState("LOADED");
+    } catch (err: any) {
+      setLoadState("ERROR");
+      setLoadError(
+        err?.message === "ALCHEMY_NOT_CONFIGURED"
+          ? "Alchemy API key not configured yet — set NEXT_PUBLIC_ALCHEMY_API_KEY."
+          : "Couldn't load your NFTs right now. Please try again shortly."
+      );
     }
+  }, [account]);
 
-    load();
+  useEffect(() => {
+    loadOwnedNfts();
+  }, [loadOwnedNfts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      if (!account || !stakingConfigured) {
+        setNeedsApproval(null);
+        return;
+      }
+      const approved = await checkStakingApproval(account);
+      if (!cancelled) setNeedsApproval(!approved);
+    }
+    check();
     return () => {
       cancelled = true;
     };
-  }, [account]);
+  }, [account, stakingConfigured, checkStakingApproval]);
+
+  useEffect(() => {
+    if (txState === "STAKE_SUCCESSFUL" || txState === "UNSTAKE_SUCCESSFUL") {
+      setSelected(new Set());
+      setSelectedStaked(new Set());
+      loadOwnedNfts();
+    }
+    if (txState === "APPROVAL_REQUIRED") {
+      setNeedsApproval(true);
+    }
+  }, [txState, loadOwnedNfts]);
+
+  // NFTs currently owned (unstaked, available to stake) vs. currently staked.
+  const stakedIdSet = useMemo(() => new Set(stakedTokens.map((t) => t.tokenId)), [stakedTokens]);
+  const availableNfts = useMemo(() => ownedNfts.filter((n) => !stakedIdSet.has(n.tokenId)), [ownedNfts, stakedIdSet]);
+
+  const toggleSelected = (tokenId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(tokenId)) next.delete(tokenId);
+      else next.add(tokenId);
+      return next;
+    });
+  };
+
+  const toggleSelectedStaked = (tokenId: string) => {
+    setSelectedStaked((prev) => {
+      const next = new Set(prev);
+      if (next.has(tokenId)) next.delete(tokenId);
+      else next.add(tokenId);
+      return next;
+    });
+  };
+
+  const selectAllAvailable = () => {
+    setSelected((prev) =>
+      prev.size === availableNfts.length ? new Set() : new Set(availableNfts.map((n) => n.tokenId))
+    );
+  };
+
+  const selectAllStaked = () => {
+    setSelectedStaked((prev) =>
+      prev.size === stakedTokens.length ? new Set() : new Set(stakedTokens.map((t) => t.tokenId))
+    );
+  };
+
+  const fmt = (amount: bigint, decimals: number) => {
+    const formatted = ethers.formatUnits(amount, decimals);
+    return parseFloat(formatted).toLocaleString(undefined, { maximumFractionDigits: 4 });
+  };
+
+  const totalPendingReward = useMemo(
+    () => stakedTokens.reduce((sum, t) => sum + t.pendingReward, BigInt(0)),
+    [stakedTokens]
+  );
+
+  const handleApprove = async () => {
+    const ok = await approveStaking();
+    if (ok && account) {
+      const approved = await checkStakingApproval(account);
+      setNeedsApproval(!approved);
+    }
+  };
+
+  const txStatusLabel: Record<string, string> = {
+    IDLE: "",
+    CHECKING_APPROVAL: "CHECKING APPROVAL…",
+    APPROVAL_REQUIRED: "APPROVAL REQUIRED",
+    CONFIRM_IN_WALLET: "CONFIRM IN WALLET…",
+    TRANSACTION_PENDING: "TRANSACTION PROCESSING…",
+    STAKE_SUCCESSFUL: "STAKE SUCCESSFUL",
+    UNSTAKE_SUCCESSFUL: "UNSTAKE SUCCESSFUL",
+    CLAIM_SUCCESSFUL: "REWARDS CLAIMED",
+    TRANSACTION_FAILED: "TRANSACTION FAILED",
+    TRANSACTION_REJECTED: "TRANSACTION REJECTED",
+    WRONG_NETWORK: "WRONG NETWORK",
+  };
+
+  const isBusy =
+    txState === "CHECKING_APPROVAL" ||
+    txState === "CONFIRM_IN_WALLET" ||
+    txState === "TRANSACTION_PENDING";
 
   return (
     <Layout>
@@ -58,12 +167,31 @@ export default function StakingPage() {
             STAKE
           </span>
           <h3 className="relative text-xl md:text-2xl font-extrabold text-black tracking-tight">
-            MINI Vault / 33.9% WYR
+            MINI Vault {rewardTokenSymbol ? `/ ${fmt(rewardPerCycle, rewardTokenDecimals)} $${rewardTokenSymbol} per 24h` : ""}
           </h3>
           <p className="relative text-xs md:text-sm text-black/70 mt-1 max-w-md">
-            Collect, stake, and let the protocol do the accounting.
+            Lock your Mini Brokers in the vault and let the protocol do the accounting.
           </p>
         </div>
+
+        {!stakingConfigured && (
+          <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
+            Staking contract address isn&apos;t configured yet — set
+            NEXT_PUBLIC_STAKING_CONTRACT_ADDRESS once the staking contract has been deployed.
+          </div>
+        )}
+
+        {account && !isCorrectNetwork && (
+          <div className="p-3 border border-red-900/50 bg-red-950/20 text-red-400 text-xs flex items-center justify-between gap-3">
+            <span>Wrong network for the Staking Vault.</span>
+            <button
+              onClick={switchNetwork}
+              className="px-3 py-1.5 bg-red-900 border border-red-800 text-red-200 text-[10px] font-bold tracking-widest hover:bg-red-800"
+            >
+              SWITCH NETWORK
+            </button>
+          </div>
+        )}
 
         {/* Header */}
         <div className="border border-zinc-800 bg-[#0f1115] p-6">
@@ -71,42 +199,62 @@ export default function StakingPage() {
             <div>
               <h2 className="text-2xl font-bold text-white tracking-wider">MINI BROKERS VAULT</h2>
               <p className="text-xs text-zinc-400 mt-2 leading-relaxed max-w-2xl">
-                Lock your Mini Brokers NFTs into the vault to earn rewards over time. You keep
-                ownership of the collectible the whole time. The staking contract isn&apos;t live
-                yet — connect your wallet below to preview which of your NFTs will be eligible.
+                Stake your Mini Brokers NFTs to earn {rewardTokenSymbol ? `$${rewardTokenSymbol}` : "reward tokens"}{" "}
+                every completed 24-hour cycle. Claim anytime without unstaking, or unstake whenever you like — the
+                in-progress cycle just won&apos;t pay out.
               </p>
             </div>
-            <span className="px-2.5 py-1 text-[10px] font-bold tracking-widest border bg-amber-950/30 text-amber-400 border-amber-800 whitespace-nowrap">
-              ● COMING SOON
+            <span
+              className={`px-2.5 py-1 text-[10px] font-bold tracking-widest border whitespace-nowrap ${
+                stakingConfigured
+                  ? "bg-[#CCFF00]/10 text-[#CCFF00] border-[#CCFF00]/40"
+                  : "bg-amber-950/30 text-amber-400 border-amber-800"
+              }`}
+            >
+              {stakingConfigured ? "● LIVE" : "● COMING SOON"}
             </span>
           </div>
 
-          {/* Stat grid — matches the mint page's metric tiles */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-6">
             <div className="p-3 bg-zinc-950 border border-zinc-800/60">
-              <span className="text-[10px] text-zinc-500 block">TOTAL STAKED</span>
-              <span className="text-sm font-bold text-white">—</span>
-            </div>
-            <div className="p-3 bg-zinc-950 border border-zinc-800/60">
               <span className="text-[10px] text-zinc-500 block">YOUR VAULT</span>
-              <span className="text-sm font-bold text-white">0</span>
+              <span className="text-sm font-bold text-white">{stakedTokens.length}</span>
             </div>
             <div className="p-3 bg-zinc-950 border border-zinc-800/60">
-              <span className="text-[10px] text-zinc-500 block">PENDING</span>
-              <span className="text-sm font-bold text-[#CCFF00]">0.00</span>
+              <span className="text-[10px] text-zinc-500 block">PENDING REWARDS</span>
+              <span className="text-sm font-bold text-[#CCFF00]">
+                {rewardTokenSymbol ? `${fmt(totalPendingReward, rewardTokenDecimals)} $${rewardTokenSymbol}` : "—"}
+              </span>
             </div>
             <div className="p-3 bg-zinc-950 border border-zinc-800/60">
-              <span className="text-[10px] text-zinc-500 block">APY</span>
-              <span className="text-sm font-bold text-white">—</span>
+              <span className="text-[10px] text-zinc-500 block">REWARD / CYCLE</span>
+              <span className="text-sm font-bold text-white">
+                {rewardTokenSymbol ? `${fmt(rewardPerCycle, rewardTokenDecimals)} $${rewardTokenSymbol}` : "—"}
+              </span>
+            </div>
+            <div className="p-3 bg-zinc-950 border border-zinc-800/60">
+              <span className="text-[10px] text-zinc-500 block">CYCLE LENGTH</span>
+              <span className="text-sm font-bold text-white">24h</span>
             </div>
           </div>
         </div>
 
-        {/* Your Vault — owned NFTs from this collection, via Alchemy */}
+        {/* Available to stake */}
         <div className="border border-zinc-800 bg-[#0f1115] p-6 space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-bold text-white tracking-widest">YOUR VAULT</h3>
-            <p className="text-[10px] text-zinc-500">SELECT OWNED NFTS TO STAKE</p>
+          <div className="flex justify-between items-center flex-wrap gap-2">
+            <h3 className="text-sm font-bold text-white tracking-widest">AVAILABLE TO STAKE</h3>
+            <div className="flex items-center gap-3">
+              {availableNfts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={selectAllAvailable}
+                  className="px-3 py-1 border border-zinc-700 text-[10px] font-bold tracking-widest text-zinc-300 hover:border-[#CCFF00] hover:text-[#CCFF00] transition-colors"
+                >
+                  {selected.size === availableNfts.length ? "DESELECT ALL" : "SELECT ALL"}
+                </button>
+              )}
+              <p className="text-[10px] text-zinc-500">SELECT OWNED NFTS TO STAKE</p>
+            </div>
           </div>
 
           {!walletConnectReady ? (
@@ -124,69 +272,180 @@ export default function StakingPage() {
               </button>
             </div>
           ) : loadState === "LOADING" ? (
-            <div className="py-12 text-center text-xs text-zinc-500 animate-pulse">
-              Loading your collection…
-            </div>
+            <div className="py-12 text-center text-xs text-zinc-500 animate-pulse">Loading your collection…</div>
           ) : loadState === "ERROR" ? (
-            <div className="p-3 border border-red-900/50 bg-red-950/20 text-red-400 text-xs">
-              {loadError}
-            </div>
-          ) : ownedNfts.length === 0 ? (
+            <div className="p-3 border border-red-900/50 bg-red-950/20 text-red-400 text-xs">{loadError}</div>
+          ) : availableNfts.length === 0 ? (
             <div className="py-12 text-center text-xs text-zinc-500">
-              No Mini Brokers found in this wallet yet.
+              {ownedNfts.length === 0 ? "No Mini Brokers found in this wallet." : "All of your Mini Brokers are already staked."}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {ownedNfts.map((nft) => (
-                <div
-                  key={nft.tokenId}
-                  className="relative border border-zinc-800 bg-zinc-950 p-2 space-y-2 opacity-60 cursor-not-allowed"
-                  title="Staking isn't live yet"
-                >
-                  <div className="aspect-square w-full bg-zinc-900 overflow-hidden flex items-center justify-center">
-                    {nft.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-[10px] text-zinc-600">NO IMAGE</span>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-zinc-400 truncate">{nft.name}</p>
-                  <input
-                    type="checkbox"
-                    disabled
-                    className="absolute top-2 right-2 accent-[#CCFF00] cursor-not-allowed"
-                  />
-                </div>
-              ))}
+              {availableNfts.map((nft) => {
+                const isSelected = selected.has(nft.tokenId);
+                return (
+                  <button
+                    key={nft.tokenId}
+                    type="button"
+                    onClick={() => toggleSelected(nft.tokenId)}
+                    className={`relative text-left border p-2 space-y-2 transition-colors ${
+                      isSelected
+                        ? "border-[#CCFF00] bg-zinc-900 shadow-[inset_0_0_10px_rgba(204,255,0,0.08)]"
+                        : "border-zinc-800 bg-zinc-950 hover:border-zinc-700"
+                    }`}
+                  >
+                    <div className="aspect-square w-full bg-zinc-900 overflow-hidden flex items-center justify-center">
+                      {nft.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-zinc-600">NO IMAGE</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-zinc-400 truncate">{nft.name}</p>
+                    <p className="text-[10px] text-zinc-600">#{nft.tokenId}</p>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      readOnly
+                      className="absolute top-2 right-2 accent-[#CCFF00] pointer-events-none"
+                    />
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Stake / Claim actions — disabled until the staking contract is live */}
+          {needsApproval && selected.size > 0 && (
+            <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-[10px]">
+              The Staking Vault needs approval to move your NFTs. Approve once, then stake.
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-zinc-800">
+            {needsApproval ? (
+              <button
+                onClick={handleApprove}
+                disabled={selected.size === 0 || isBusy || !stakingConfigured}
+                className="flex-1 py-3 bg-[#CCFF00] text-black font-bold text-xs tracking-widest disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#b8e600] transition-colors"
+              >
+                APPROVE NFTS
+              </button>
+            ) : (
+              <button
+                onClick={() => stakeSelected(Array.from(selected))}
+                disabled={selected.size === 0 || isBusy || !stakingConfigured}
+                className="flex-1 py-3 bg-[#CCFF00] text-black font-bold text-xs tracking-widest disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#b8e600] transition-colors"
+              >
+                STAKE SELECTED ({selected.size})
+              </button>
+            )}
+          </div>
+
+          {!ALCHEMY_API_KEY && (
+            <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
+              Note: NEXT_PUBLIC_ALCHEMY_API_KEY isn&apos;t set in .env.local, so NFT lookups above will show a
+              config warning until it&apos;s added.
+            </div>
+          )}
+        </div>
+
+        {/* Currently staked */}
+        <div className="border border-zinc-800 bg-[#0f1115] p-6 space-y-4">
+          <div className="flex justify-between items-center flex-wrap gap-2">
+            <h3 className="text-sm font-bold text-white tracking-widest">CURRENTLY STAKED</h3>
+            <div className="flex items-center gap-3">
+              {stakedTokens.length > 0 && (
+                <button
+                  type="button"
+                  onClick={selectAllStaked}
+                  className="px-3 py-1 border border-zinc-700 text-[10px] font-bold tracking-widest text-zinc-300 hover:border-[#CCFF00] hover:text-[#CCFF00] transition-colors"
+                >
+                  {selectedStaked.size === stakedTokens.length ? "DESELECT ALL" : "SELECT ALL"}
+                </button>
+              )}
+              <p className="text-[10px] text-zinc-500">SELECT TO CLAIM / UNSTAKE</p>
+            </div>
+          </div>
+
+          {stakedLoading ? (
+            <p className="text-xs text-zinc-500 animate-pulse py-8 text-center">Loading vault…</p>
+          ) : stakedTokens.length === 0 ? (
+            <div className="py-12 text-center text-xs text-zinc-500">Nothing staked yet.</div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {stakedTokens.map((t) => {
+                const isSelected = selectedStaked.has(t.tokenId);
+                const nftMeta = ownedNfts.find((n) => n.tokenId === t.tokenId);
+                return (
+                  <button
+                    key={t.tokenId}
+                    type="button"
+                    onClick={() => toggleSelectedStaked(t.tokenId)}
+                    className={`relative text-left border p-2 space-y-1 transition-colors ${
+                      isSelected
+                        ? "border-[#CCFF00] bg-zinc-900 shadow-[inset_0_0_10px_rgba(204,255,0,0.08)]"
+                        : "border-zinc-800 bg-zinc-950 hover:border-zinc-700"
+                    }`}
+                  >
+                    <div className="aspect-square w-full bg-zinc-900 overflow-hidden flex items-center justify-center">
+                      {nftMeta?.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={nftMeta.image} alt={nftMeta.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-zinc-600">#{t.tokenId}</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-zinc-600">#{t.tokenId}</p>
+                    <p className="text-[10px] text-[#CCFF00] font-bold">
+                      +{rewardTokenSymbol ? fmt(t.pendingReward, rewardTokenDecimals) : "0"}
+                    </p>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      readOnly
+                      className="absolute top-2 right-2 accent-[#CCFF00] pointer-events-none"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {txState !== "IDLE" && txStatusLabel[txState] && (
+            <div className="p-2 text-[10px] tracking-widest text-zinc-400 border border-zinc-800 bg-zinc-950">
+              {txStatusLabel[txState]}
+              {txState === "TRANSACTION_FAILED" && errorMessage ? ` — ${errorMessage}` : ""}
+              {txHash && (
+                <a
+                  href={`${WEB3_CONFIG.EXPLORER_URL}/tx/${txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-[#CCFF00] mt-1 underline"
+                >
+                  VIEW TRANSACTION
+                </a>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-zinc-800">
             <button
-              disabled
-              title="Staking isn't live yet"
-              className="flex-1 py-3 bg-zinc-900 border border-zinc-800 text-zinc-600 font-bold text-xs tracking-widest cursor-not-allowed"
+              onClick={() => claimSelected(Array.from(selectedStaked))}
+              disabled={selectedStaked.size === 0 || isBusy}
+              className="flex-1 py-3 bg-[#CCFF00] text-black font-bold text-xs tracking-widest disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#b8e600] transition-colors"
             >
-              STAKE SELECTED (0)
+              CLAIM REWARDS ({selectedStaked.size})
             </button>
             <button
-              disabled
-              title="Staking isn't live yet"
-              className="flex-1 py-3 bg-zinc-900 border border-zinc-800 text-zinc-600 font-bold text-xs tracking-widest cursor-not-allowed"
+              onClick={() => unstakeSelected(Array.from(selectedStaked))}
+              disabled={selectedStaked.size === 0 || isBusy}
+              className="flex-1 py-3 bg-zinc-900 border border-zinc-700 text-white font-bold text-xs tracking-widest disabled:opacity-30 disabled:cursor-not-allowed hover:border-[#CCFF00] transition-colors"
             >
-              CLAIM REWARDS
+              UNSTAKE SELECTED ({selectedStaked.size})
             </button>
           </div>
         </div>
-
-        {!ALCHEMY_API_KEY && (
-          <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
-            Note: NEXT_PUBLIC_ALCHEMY_API_KEY isn&apos;t set in .env.local, so NFT lookups above
-            will show a config warning until it&apos;s added.
-          </div>
-        )}
       </div>
     </Layout>
   );
