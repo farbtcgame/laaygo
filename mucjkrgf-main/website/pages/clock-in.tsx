@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Layout } from "../components/Layout";
-import { Countdown } from "../components/Countdown";
 import { useWeb3 } from "../context/Web3Context";
 import { useClockIn, VipLevelConfig } from "../context/ClockInContext";
-import { CLOCK_IN_LAUNCH_TIMESTAMP, WEB3_CONFIG, ALCHEMY_API_KEY } from "../config/web3";
+import { WEB3_CONFIG, ALCHEMY_API_KEY } from "../config/web3";
 import { fetchOwnedMiniBrokers, OwnedNft } from "../lib/alchemyNfts";
 import { ethers } from "ethers";
 
@@ -266,94 +265,88 @@ export default function ClockInPage() {
           <p className="text-xs text-zinc-500 mt-1">Register your Mini Brokers for VIP rewards — no staking required</p>
         </div>
 
-        <Countdown
-          target={CLOCK_IN_LAUNCH_TIMESTAMP}
-          label="Clock In opens in"
-          completeState={
-            <div className="space-y-6">
-              {!clockInConfigured && (
-                <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
-                  Clock In contract address isn&apos;t configured yet — set
-                  NEXT_PUBLIC_CLOCK_IN_CONTRACT_ADDRESS once the contract has been deployed.
-                </div>
-              )}
+        <div className="space-y-6">
+          {!clockInConfigured && (
+            <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
+              Clock In contract address isn&apos;t configured yet — set
+              NEXT_PUBLIC_CLOCK_IN_CONTRACT_ADDRESS once the contract has been deployed.
+            </div>
+          )}
 
-              {account && !isCorrectNetwork && (
-                <div className="p-3 border border-red-900/50 bg-red-950/20 text-red-400 text-xs flex items-center justify-between gap-3">
-                  <span>Wrong network for Clock In.</span>
-                  <button
-                    onClick={switchNetwork}
-                    className="px-3 py-1.5 bg-red-900 border border-red-800 text-red-200 text-[10px] font-bold tracking-widest hover:bg-red-800"
-                  >
-                    SWITCH NETWORK
-                  </button>
-                </div>
-              )}
+          {account && !isCorrectNetwork && (
+            <div className="p-3 border border-red-900/50 bg-red-950/20 text-red-400 text-xs flex items-center justify-between gap-3">
+              <span>Wrong network for Clock In.</span>
+              <button
+                onClick={switchNetwork}
+                className="px-3 py-1.5 bg-red-900 border border-red-800 text-red-200 text-[10px] font-bold tracking-widest hover:bg-red-800"
+              >
+                SWITCH NETWORK
+              </button>
+            </div>
+          )}
 
-              {!walletConnectReady ? (
-                <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
-                  WalletConnect Project ID not configured yet — set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID.
-                </div>
-              ) : !account ? (
-                <div className="flex flex-col items-center justify-center py-12 border border-dashed border-zinc-800 space-y-4">
-                  <p className="text-xs text-zinc-500">Connect your wallet to see your Mini Brokers.</p>
-                  <button
-                    onClick={connectWallet}
-                    className="px-6 py-2.5 bg-[#CCFF00] text-black font-bold text-xs tracking-widest hover:bg-[#b8e600] transition-colors"
-                  >
-                    CONNECT WALLET
-                  </button>
-                </div>
-              ) : loadState === "LOADING" ? (
-                <div className="py-12 text-center text-xs text-zinc-500 animate-pulse">Loading your collection…</div>
-              ) : loadState === "ERROR" ? (
-                <div className="p-3 border border-red-900/50 bg-red-950/20 text-red-400 text-xs">{loadError}</div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {vipConfigs.map((cfg) => (
-                    <VipCard
-                      key={cfg.vipLevel}
-                      cfg={cfg}
-                      ownedNfts={ownedNfts}
-                      registeredTokenIds={registeredTokenIds}
-                      registrationsByToken={Object.fromEntries(
-                        Object.entries(registrationsByToken).filter(([, r]) => r.vipLevel === cfg.vipLevel)
-                      )}
-                      fmt={fmt}
-                      onJoin={joinVip}
-                      onClaim={claimVip}
-                      busy={isBusy}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {!ALCHEMY_API_KEY && account && (
-                <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
-                  Note: NEXT_PUBLIC_ALCHEMY_API_KEY isn&apos;t set in .env.local, so NFT lookups above will show a
-                  config warning until it&apos;s added.
-                </div>
-              )}
-
-              {txState !== "IDLE" && txStatusLabel[txState] && (
-                <div className="p-2 text-[10px] tracking-widest text-zinc-400 border border-zinc-800 bg-zinc-950">
-                  {txStatusLabel[txState]}
-                  {txState === "TRANSACTION_FAILED" && errorMessage ? ` — ${errorMessage}` : ""}
-                  {txHash && (
-                    <a
-                      href={`${WEB3_CONFIG.EXPLORER_URL}/tx/${txHash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-[#CCFF00] mt-1 underline"
-                    >
-                      VIEW TRANSACTION
-                    </a>
+          {!walletConnectReady ? (
+            <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
+              WalletConnect Project ID not configured yet — set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID.
+            </div>
+          ) : !account ? (
+            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-zinc-800 space-y-4">
+              <p className="text-xs text-zinc-500">Connect your wallet to see your Mini Brokers.</p>
+              <button
+                onClick={connectWallet}
+                className="px-6 py-2.5 bg-[#CCFF00] text-black font-bold text-xs tracking-widest hover:bg-[#b8e600] transition-colors"
+              >
+                CONNECT WALLET
+              </button>
+            </div>
+          ) : loadState === "LOADING" ? (
+            <div className="py-12 text-center text-xs text-zinc-500 animate-pulse">Loading your collection…</div>
+          ) : loadState === "ERROR" ? (
+            <div className="p-3 border border-red-900/50 bg-red-950/20 text-red-400 text-xs">{loadError}</div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {vipConfigs.map((cfg) => (
+                <VipCard
+                  key={cfg.vipLevel}
+                  cfg={cfg}
+                  ownedNfts={ownedNfts}
+                  registeredTokenIds={registeredTokenIds}
+                  registrationsByToken={Object.fromEntries(
+                    Object.entries(registrationsByToken).filter(([, r]) => r.vipLevel === cfg.vipLevel)
                   )}
-                </div>
+                  fmt={fmt}
+                  onJoin={joinVip}
+                  onClaim={claimVip}
+                  busy={isBusy}
+                />
+              ))}
+            </div>
+          )}
+
+          {!ALCHEMY_API_KEY && account && (
+            <div className="p-3 border border-amber-900/50 bg-amber-950/20 text-amber-400 text-xs">
+              Note: NEXT_PUBLIC_ALCHEMY_API_KEY isn&apos;t set in .env.local, so NFT lookups above will show a
+              config warning until it&apos;s added.
+            </div>
+          )}
+
+          {txState !== "IDLE" && txStatusLabel[txState] && (
+            <div className="p-2 text-[10px] tracking-widest text-zinc-400 border border-zinc-800 bg-zinc-950">
+              {txStatusLabel[txState]}
+              {txState === "TRANSACTION_FAILED" && errorMessage ? ` — ${errorMessage}` : ""}
+              {txHash && (
+                <a
+                  href={`${WEB3_CONFIG.EXPLORER_URL}/tx/${txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-[#CCFF00] mt-1 underline"
+                >
+                  VIEW TRANSACTION
+                </a>
               )}
             </div>
-          }
-        />
+          )}
+        </div>
       </div>
     </Layout>
   );
