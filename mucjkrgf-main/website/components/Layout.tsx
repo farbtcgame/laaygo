@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useWeb3 } from '../context/Web3Context';
-import { WEB3_CONFIG, EXCHANGE_LAUNCH_TIMESTAMP, CLOCK_IN_LAUNCH_TIMESTAMP } from '../config/web3';
+import { WEB3_CONFIG, EXCHANGE_LAUNCH_TIMESTAMP } from '../config/web3';
 import { CountdownBadge } from './Countdown';
 
 interface NavLink {
@@ -24,14 +24,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     { label: 'STAKING', path: '/staking' },
     { label: 'BURN LAB', path: '/burn' },
     { label: 'EXCHANGE', path: '/exchange', badge: 'countdown-exchange' },
-    { label: 'CLOCK IN', path: '/clock-in', badge: 'countdown-clockin' },
+    { label: 'CLOCK IN', path: '/clock-in' },
     { label: 'MINI DROP', path: '/mini-drop', badge: 'pending' },
     { label: 'ADMIN', path: '/admin/overview' },
   ];
 
   const renderBadge = (badge?: NavLink['badge']) => {
     if (badge === 'countdown-exchange') return <CountdownBadge target={EXCHANGE_LAUNCH_TIMESTAMP} />;
-    if (badge === 'countdown-clockin') return <CountdownBadge target={CLOCK_IN_LAUNCH_TIMESTAMP} />;
     if (badge === 'pending') {
       return (
         <span className="ml-auto px-1.5 py-0.5 text-[9px] font-bold tracking-wider border border-zinc-700 text-zinc-500">
