@@ -121,3 +121,11 @@ export const CLOCK_IN_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CLOCK_IN_CONTRA
 // Same fixed-fallback behavior as EXCHANGE_LAUNCH_TIMESTAMP above.
 export const CLOCK_IN_LAUNCH_TIMESTAMP =
   process.env.NEXT_PUBLIC_CLOCK_IN_LAUNCH_TIMESTAMP || "2026-08-18T00:00:00Z";
+
+// ==========================================================
+// NFT Staking — separate contract, deployed after the /hardhat-staking
+// package's `deploy:staking` script. Left blank until deployed; pages
+// read this to decide whether staking is wired up yet.
+// ==========================================================
+export const STAKING_CONTRACT_ADDRESS =
+  process.env.NEXT_PUBLIC_STAKING_CONTRACT_ADDRESS || "";
