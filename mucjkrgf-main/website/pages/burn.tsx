@@ -168,7 +168,24 @@ export default function BurnLabPage() {
         <div className="border border-zinc-800 bg-[#0f1115] p-6 space-y-4">
           <div className="flex justify-between items-center flex-wrap gap-2">
             <h3 className="text-sm font-bold text-white tracking-widest">YOUR COLLECTION</h3>
-            <p className="text-[10px] text-zinc-500">SELECT NFTS TO RETIRE</p>
+            <div className="flex items-center gap-3">
+              {ownedNfts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelected((prev) =>
+                      prev.size === ownedNfts.length
+                        ? new Set()
+                        : new Set(ownedNfts.map((n) => n.tokenId))
+                    )
+                  }
+                  className="px-3 py-1 border border-zinc-700 text-[10px] font-bold tracking-widest text-zinc-300 hover:border-[#CCFF00] hover:text-[#CCFF00] transition-colors"
+                >
+                  {selected.size === ownedNfts.length ? "DESELECT ALL" : "SELECT ALL"}
+                </button>
+              )}
+              <p className="text-[10px] text-zinc-500">SELECT NFTS TO RETIRE</p>
+            </div>
           </div>
 
           {!walletConnectReady ? (
